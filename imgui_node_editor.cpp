@@ -465,7 +465,7 @@ static void ImDrawList_AddBezierWithArrows(ImDrawList* drawList, const ImCubicBe
 
         if (startArrowSize > 0.0f)
         {
-            const auto start_dir  = ImNormalized(ImCubicBezierTangent(curve.P0, curve.P1, curve.P2, curve.P3, 0.0f));
+            const auto start_dir  = ImNormalized(ImCubicBezierTangent(curve.P0, curve.P1, curve.P2, curve.P3, 1.0f));
             const auto start_n    = ImVec2(-start_dir.y, start_dir.x);
             const auto half_width = startArrowWidth * 0.5f;
             const auto tip        = curve.P0 - start_dir * startArrowSize;
@@ -542,7 +542,7 @@ void ed::Pin::Draw(ImDrawList* drawList, DrawFlags flags)
         drawList->ChannelsSetCurrent(m_Node->m_Channel + c_NodePinChannel);
 
         drawList->AddRectFilled(m_Bounds.Min, m_Bounds.Max,
-            m_Color, m_Rounding, m_Corners);
+            m_Color , m_Rounding, m_Corners);
 
         if (m_BorderWidth > 0.0f)
         {
@@ -856,14 +856,41 @@ void ed::Link::Draw(ImDrawList* drawList, ImU32 color, float extraThickness) con
     if (!m_IsLive)
         return;
 
-    const auto curve = GetCurve();
-
-    ImDrawList_AddBezierWithArrows(drawList, curve, m_Thickness + extraThickness,
+    // const auto curve = GetCurve();
+    
+    // Arreglamos un poco las curvas con esta configuración básica por defecto.
+    
+    ImVec2 Punto_A = m_Start;   // Punto Origen (Posición del Pin desde donde se arrastra)
+    ImVec2 Punto_D = m_End;     // Punto Destino (Posición del Cursor actual)
+    
+    // Distancias entre los puntos.
+    
+    float Distancia_X = (Punto_D.x - Punto_A.x);
+    float Distancia_Y = (Punto_D.y - Punto_A.y);
+    
+    // Distancia entre los dos puntos.
+    
+    float Distancia = ImSqrt ((Distancia_X * Distancia_X) + (Distancia_Y * Distancia_Y));
+    
+    // Las fuerzas que tendrán cada parte.
+    
+    float Fuerza_Inicio = (((Distancia * 0.4) + m_StartPin->m_Strength) * 0.5f);
+    float Fuerza_Destino = (((Distancia * 0.4) + m_EndPin->m_Strength) * 0.5f);
+    
+    // Calculamo los puntos restantes moviendo a donde se encuentre la dirección.
+    
+    ImVec2 Punto_B = (Punto_A + (m_StartPin->m_Dir * Fuerza_Inicio));
+    ImVec2 Punto_C = (Punto_D + (m_EndPin->m_Dir * Fuerza_Destino));
+    
+    // Dibujamos la curva de bezier.
+    
+    ImDrawList_AddBezierWithArrows(drawList, { Punto_A , Punto_B , Punto_C , Punto_D } , m_Thickness + extraThickness,
         m_StartPin && m_StartPin->m_ArrowSize  > 0.0f ? m_StartPin->m_ArrowSize  + extraThickness : 0.0f,
         m_StartPin && m_StartPin->m_ArrowWidth > 0.0f ? m_StartPin->m_ArrowWidth + extraThickness : 0.0f,
           m_EndPin &&   m_EndPin->m_ArrowSize  > 0.0f ?   m_EndPin->m_ArrowSize  + extraThickness : 0.0f,
           m_EndPin &&   m_EndPin->m_ArrowWidth > 0.0f ?   m_EndPin->m_ArrowWidth + extraThickness : 0.0f,
         true, color, 1.0f);
+    
 }
 
 void ed::Link::UpdateEndpoints()
@@ -1099,16 +1126,18 @@ void ed::EditorContext::Begin(const char* id, const ImVec2& size)
 
     //
 	m_NavigateAction.SetWindow(m_Canvas.ViewRect().Min, m_Canvas.ViewRect().GetSize());
-
+    
     if (m_CurrentAction && m_CurrentAction->IsDragging() && m_NavigateAction.MoveOverEdge())
     {
         auto& io = ImGui::GetIO();
         auto offset = m_NavigateAction.GetMoveOffset();
         for (int i = 0; i < 5; ++i)
             io.MouseClickedPos[i] = io.MouseClickedPos[i] - offset;
+        
     }
-    else
+    else {
         m_NavigateAction.StopMoveOverEdge();
+    }
 
     m_Canvas.SetView(m_NavigateAction.GetView());
 
@@ -3072,13 +3101,14 @@ void ed::NavigateAction::FinishNavigation()
 bool ed::NavigateAction::MoveOverEdge()
 {
     // Don't interrupt non-edge animations
+    
     if (m_Animation.IsPlaying())
         return false;
 
-          auto& io            = ImGui::GetIO();
+    auto& io            = ImGui::GetIO();
     const auto screenRect     = m_Canvas.ViewRect();
     const auto screenMousePos = io.MousePos;
-
+    
     // Mouse is over screen, do nothing
     if (screenRect.Contains(screenMousePos))
         return false;
@@ -3088,7 +3118,6 @@ bool ed::NavigateAction::MoveOverEdge()
     const auto offset            = -direction * io.DeltaTime * 10.0f;
 
     m_Scroll = m_Scroll + offset;
-
     m_MoveOffset     = offset;
     m_MovingOverEdge = true;
 
@@ -3097,6 +3126,7 @@ bool ed::NavigateAction::MoveOverEdge()
 
 void ed::NavigateAction::StopMoveOverEdge()
 {
+    
     if (m_MovingOverEdge)
     {
         Editor->MakeDirty(SaveReasonFlags::Navigation);
@@ -3104,6 +3134,7 @@ void ed::NavigateAction::StopMoveOverEdge()
         m_MoveOffset     = ImVec2(0, 0);
         m_MovingOverEdge = false;
     }
+    
 }
 
 void ed::NavigateAction::SetWindow(ImVec2 position, ImVec2 size)
@@ -3378,7 +3409,8 @@ ed::DragAction::DragAction(EditorContext* editor):
     EditorAction(editor),
     m_IsActive(false),
     m_Clear(false),
-    m_DraggedObject(nullptr)
+    m_DraggedObject(nullptr),
+    m_StartDrag(0.0f , 0.0f)
 {
 }
 
@@ -3425,7 +3457,12 @@ ed::EditorAction::AcceptResult ed::DragAction::Accept(const Control& control)
                     m_Objects.push_back(candidate);
         }
 
+        // Asignamos la posicion de donde parte el cursor.
+        
+        m_StartDrag = io.MousePos;
+        
         m_IsActive = true;
+        
     }
     else if (control.HotNode && IsGroup(control.HotNode) && control.HotNode->GetRegion(ImGui::GetMousePos()) == NodeRegion::Header)
     {
@@ -3434,6 +3471,8 @@ ed::EditorAction::AcceptResult ed::DragAction::Accept(const Control& control)
 
     return m_IsActive ? True : False;
 }
+
+
 
 bool ed::DragAction::Process(const Control& control)
 {
@@ -3448,7 +3487,7 @@ bool ed::DragAction::Process(const Control& control)
         }
 
         m_Objects.resize(0);
-
+        
         m_DraggedObject = nullptr;
     }
 
@@ -3457,11 +3496,16 @@ bool ed::DragAction::Process(const Control& control)
 
     if (control.ActiveObject == m_DraggedObject)
     {
-        auto dragOffset = ImGui::GetMouseDragDelta(0, 0.0f);
+        
+        // auto dragOffset = ImGui::GetMouseDragDelta (0 , 0.0f); // Obsoleto , se desfasa con el navegador cuando el drag supera los limites del borde.
+        
+        auto & io = ImGui::GetIO ();
+        
+        auto dragOffset = (io.MousePos - m_StartDrag);
 
-        auto draggedOrigin  = m_DraggedObject->DragStartLocation();
+        auto draggedOrigin  = m_StartDrag;
         auto alignPivot     = ImVec2(0, 0);
-
+        
         // TODO: Move this experimental alignment to closes pivot out of internals to node API
         if (auto draggedNode = m_DraggedObject->AsNode())
         {
@@ -3499,14 +3543,15 @@ bool ed::DragAction::Process(const Control& control)
 
         if (!ImGui::GetIO().KeyAlt)
             dragOffset = alignedOffset;
-
-        for (auto object : m_Objects)
+        
+        for (auto object : m_Objects) {
             object->UpdateDrag(dragOffset);
+        }
     }
     else if (!control.ActiveObject)
     {
         m_Clear = true;
-
+        m_StartDrag = ImVec2 (0.0f , 0.0f);
         m_IsActive = false;
         return true;
     }
@@ -3531,9 +3576,6 @@ void ed::DragAction::ShowMetrics()
     ImGui::Text("    Active: %s", m_IsActive ? "yes" : "no");
     ImGui::Text("    Node: %s (%p)", getObjectName(m_DraggedObject), m_DraggedObject ? m_DraggedObject->ID().AsPointer() : nullptr);
 }
-
-
-
 
 //------------------------------------------------------------------------------
 //
@@ -4855,6 +4897,8 @@ void ed::NodeBuilder::EndPin()
 
     if (m_ResolvePinRect)
         m_CurrentPin->m_Bounds = ImGui_GetItemRect();
+    
+    // m_CurrentPin->m_Bounds.Min = (m_CurrentPin->m_Bounds.Min - ImVec2 (15.0f , 0.0f));
 
     if (m_ResolvePivot)
     {
@@ -4865,15 +4909,15 @@ void ed::NodeBuilder::EndPin()
         if (m_PivotSize.y < 0)
             m_PivotSize.y = pinRect.GetHeight();
 
-        m_CurrentPin->m_Pivot.Min = pinRect.Min + ImMul(pinRect.GetSize(), m_PivotAlignment);
+        m_CurrentPin->m_Pivot.Min = pinRect.Min - ImVec2 (4.0f , 0.0f) + ImMul(pinRect.GetSize(), m_PivotAlignment);
         m_CurrentPin->m_Pivot.Max = m_CurrentPin->m_Pivot.Min + ImMul(m_PivotSize, m_PivotScale);
     }
 
     // #debug: Draw pin bounds
-    //ImGui::GetWindowDrawList()->AddRect(m_CurrentPin->m_Bounds.Min, m_CurrentPin->m_Bounds.Max, IM_COL32(255, 255, 0, 255));
+    // ImGui::GetWindowDrawList()->AddRect(m_CurrentPin->m_Bounds.Min, m_CurrentPin->m_Bounds.Max, IM_COL32(255, 255, 0, 125));
 
     // #debug: Draw pin pivot rectangle
-    //ImGui::GetWindowDrawList()->AddRect(m_CurrentPin->m_Pivot.Min, m_CurrentPin->m_Pivot.Max, IM_COL32(255, 0, 255, 255));
+    // ImGui::GetWindowDrawList()->AddRect(m_CurrentPin->m_Pivot.Min, m_CurrentPin->m_Pivot.Max, IM_COL32(255, 0, 255, 125));
 
     m_CurrentPin = nullptr;
 }

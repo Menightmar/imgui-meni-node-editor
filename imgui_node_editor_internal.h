@@ -896,7 +896,8 @@ struct DragAction final: EditorAction
     bool            m_Clear;
     Object*         m_DraggedObject;
     vector<Object*> m_Objects;
-
+    ImVec2          m_StartDrag;  // For drag with synchro-navegator.
+    
     DragAction(EditorContext* editor);
 
     virtual const char* GetName() const override final { return "Drag"; }
