@@ -896,7 +896,10 @@ struct DragAction final: EditorAction
     bool            m_Clear;
     Object*         m_DraggedObject;
     vector<Object*> m_Objects;
-    ImVec2          m_StartDrag;  // For drag with synchro-navegator.
+    ImVec2          m_StartDrag;    // For drag with synchro-navegator.
+    ImVec2          m_StartAlign;   // Punto de inicio del alineamiento.
+    bool            m_AlignX;       // Alineado sobre eje X.
+    bool            m_AlignY;       // Alineado sobre eje Y. 
     
     DragAction(EditorContext* editor);
 
@@ -1062,6 +1065,8 @@ struct CreateItemAction final : EditorAction
     virtual bool IsDragging() override final { return m_IsActive; }
 
     virtual CreateItemAction* AsCreateItem() override final { return this; }
+
+    Pin * FindPin ();
 
     void SetStyle(ImU32 color, float thickness);
 
@@ -1293,6 +1298,7 @@ struct EditorContext
 
     Node* FindNodeAt(const ImVec2& p);
     void FindNodesInRect(const ImRect& r, vector<Node*>& result, bool append = false, bool includeIntersecting = true);
+    void FindPinsInRect(const ImRect& r, vector<Pin*>& result , bool append = false);
     void FindLinksInRect(const ImRect& r, vector<Link*>& result, bool append = false);
 
     void FindLinksForNode(NodeId nodeId, vector<Link*>& result, bool add = false);

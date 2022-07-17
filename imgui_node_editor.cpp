@@ -856,35 +856,11 @@ void ed::Link::Draw(ImDrawList* drawList, ImU32 color, float extraThickness) con
     if (!m_IsLive)
         return;
 
-    // const auto curve = GetCurve();
-    
-    // Arreglamos un poco las curvas con esta configuración básica por defecto.
-    
-    ImVec2 Punto_A = m_Start;   // Punto Origen (Posición del Pin desde donde se arrastra)
-    ImVec2 Punto_D = m_End;     // Punto Destino (Posición del Cursor actual)
-    
-    // Distancias entre los puntos.
-    
-    float Distancia_X = (Punto_D.x - Punto_A.x);
-    float Distancia_Y = (Punto_D.y - Punto_A.y);
-    
-    // Distancia entre los dos puntos.
-    
-    float Distancia = ImSqrt ((Distancia_X * Distancia_X) + (Distancia_Y * Distancia_Y));
-    
-    // Las fuerzas que tendrán cada parte.
-    
-    float Fuerza_Inicio = (((Distancia * 0.4) + m_StartPin->m_Strength) * 0.5f);
-    float Fuerza_Destino = (((Distancia * 0.4) + m_EndPin->m_Strength) * 0.5f);
-    
-    // Calculamo los puntos restantes moviendo a donde se encuentre la dirección.
-    
-    ImVec2 Punto_B = (Punto_A + (m_StartPin->m_Dir * Fuerza_Inicio));
-    ImVec2 Punto_C = (Punto_D + (m_EndPin->m_Dir * Fuerza_Destino));
+    const auto curve = GetCurve();
     
     // Dibujamos la curva de bezier.
     
-    ImDrawList_AddBezierWithArrows(drawList, { Punto_A , Punto_B , Punto_C , Punto_D } , m_Thickness + extraThickness,
+    ImDrawList_AddBezierWithArrows(drawList, curve , m_Thickness + extraThickness,
         m_StartPin && m_StartPin->m_ArrowSize  > 0.0f ? m_StartPin->m_ArrowSize  + extraThickness : 0.0f,
         m_StartPin && m_StartPin->m_ArrowWidth > 0.0f ? m_StartPin->m_ArrowWidth + extraThickness : 0.0f,
           m_EndPin &&   m_EndPin->m_ArrowSize  > 0.0f ?   m_EndPin->m_ArrowSize  + extraThickness : 0.0f,
@@ -902,6 +878,7 @@ void ed::Link::UpdateEndpoints()
 
 ImCubicBezierPoints ed::Link::GetCurve() const
 {
+    /*
     auto easeLinkStrength = [](const ImVec2& a, const ImVec2& b, float strength)
     {
         const auto distanceX    = b.x - a.x;
@@ -925,8 +902,41 @@ ImCubicBezierPoints ed::Link::GetCurve() const
     result.P1 = cp0;
     result.P2 = cp1;
     result.P3 = m_End;
-
+    */
+    
+    // Arreglamos un poco las curvas con esta configuración básica por defecto.
+    
+    ImCubicBezierPoints result;
+    
+    // Los puntos de origen/destino.
+    
+    result.P0 = m_Start;   // Punto Origen (Posición del Pin desde donde se arrastra)
+    result.P3 = m_End;     // Punto Destino (Posición del Cursor actual)
+    
+    // Distancias entre los puntos.
+    
+    float Distancia_X = (result.P3.x - result.P0.x);
+    float Distancia_Y = (result.P3.y - result.P0.y);
+    
+    // Distancia entre los dos puntos.
+    
+    float Distancia = ImSqrt ((Distancia_X * Distancia_X) + (Distancia_Y * Distancia_Y));
+    
+    // Las fuerzas que tendrán cada parte.
+    
+    float Fuerza_Inicio = (((Distancia * 0.4) + m_StartPin->m_Strength) * 0.5f);
+    float Fuerza_Destino = (((Distancia * 0.4) + m_EndPin->m_Strength) * 0.5f);
+    
+    // Calculamo los puntos restantes moviendo a donde se encuentre la dirección.
+    
+    result.P1 = (result.P0 + (m_StartPin->m_Dir * Fuerza_Inicio));
+    result.P2 = (result.P3 + (m_EndPin->m_Dir * Fuerza_Destino));
+    
+    
+    // Devolvemos los puntos de la curva.
+    
     return result;
+    
 }
 
 bool ed::Link::TestHit(const ImVec2& point, float extraThickness) const
@@ -942,6 +952,7 @@ bool ed::Link::TestHit(const ImVec2& point, float extraThickness) const
         return false;
 
     const auto bezier = GetCurve();
+    
     const auto result = ImProjectOnCubicBezier(point, bezier.P0, bezier.P1, bezier.P2, bezier.P3, 50);
 
     return result.Distance <= m_Thickness + extraThickness;
@@ -1208,7 +1219,7 @@ void ed::EditorContext::End()
         if (hoveredObject && !IsSelected(hoveredObject) && hoveredObject->IsVisible())
             hoveredObject->Draw(drawList, Object::Hovered);
     }
-
+    
     // Draw animations
     for (auto controller : m_AnimationControllers)
         controller->Draw(drawList);
@@ -1653,6 +1664,20 @@ void ed::EditorContext::FindNodesInRect(const ImRect& r, vector<Node*>& result, 
             result.push_back(node);
 }
 
+void ed::EditorContext::FindPinsInRect(const ImRect& r, vector<Pin*>& result , bool append) {
+    
+    if (!append)
+        result.resize(0);
+
+    if (ImRect_IsEmpty(r))
+        return;
+    
+    for (auto pin : m_Pins)
+        if (pin->TestHit(r, true))
+            result.push_back(pin);
+    
+}
+
 void ed::EditorContext::FindLinksInRect(const ImRect& r, vector<Link*>& result, bool append)
 {
     if (!append)
@@ -2060,8 +2085,9 @@ ed::Control ed::EditorContext::BuildControl(bool allowOffscreen)
         if (!doubleClickedObject && ImGui::IsMouseDoubleClicked(0) && ImGui::IsItemHovered())
             doubleClickedObject = object;
 
-        if (!hotObject && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem))
+        if (!hotObject && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem)) {
             hotObject = object;
+        }
 
         if (ImGui::IsItemActive())
             activeObject = object;
@@ -3410,7 +3436,10 @@ ed::DragAction::DragAction(EditorContext* editor):
     m_IsActive(false),
     m_Clear(false),
     m_DraggedObject(nullptr),
-    m_StartDrag(0.0f , 0.0f)
+    m_StartDrag(0.0f , 0.0f),
+    m_StartAlign(0.0f , 0.0f),
+    m_AlignX (false),
+    m_AlignY (false)
 {
 }
 
@@ -3501,8 +3530,37 @@ bool ed::DragAction::Process(const Control& control)
         
         auto & io = ImGui::GetIO ();
         
-        auto dragOffset = (io.MousePos - m_StartDrag);
-
+        // Alineando sobre el eje.
+        
+        if (io.KeyShift) {
+            
+            // Si el estado está reseteado entonces registramos la posición actual para colocar el origen del alineamiento.
+            
+            if (!m_AlignY && !m_AlignX) {
+                
+                // Origen del alineamiento en la posición actual.
+                
+                m_StartAlign = io.MousePos;
+                
+                // Cambiamos los estados a true para el siguiente paso.
+                
+                m_AlignX = m_AlignY = true;
+                
+            }
+            
+        }
+        else {
+            
+            // Reestablecemos sus estados originales.
+            
+            m_AlignX = m_AlignY = false;
+            
+        }
+        
+        // Asignamos la diferencia si tenemos o no la tecla shift.
+        
+        auto dragOffset = (io.KeyShift) ? (m_StartAlign - m_StartDrag) : (io.MousePos - m_StartDrag);
+        
         auto draggedOrigin  = m_StartDrag;
         auto alignPivot     = ImVec2(0, 0);
         
@@ -3538,9 +3596,48 @@ bool ed::DragAction::Process(const Control& control)
 
             //testPivot(point(0, 0));
         }
-
+        
+        // Alineando sobre el eje.
+        
+        if (io.KeyShift) {
+            
+            // Umbral de desplazamiento lo definiremos en 10.0f por defecto.
+            
+            #define UMBRAL_DESPLAZAMIENTO 10.0f
+            
+            // La cantidad de desplazamiento en ambos ejes define hacia donde se alinea el drag , el que sea mayor.
+            
+            float Desplazo_X = std::abs (io.MousePos.x - m_StartAlign.x);
+            float Desplazo_Y = std::abs (io.MousePos.y - m_StartAlign.y);
+            
+            // Si está en el umbral entonces seguimos.
+            
+            if ((Desplazo_X > UMBRAL_DESPLAZAMIENTO) || (Desplazo_Y > UMBRAL_DESPLAZAMIENTO)) {
+                
+                // Si ambos están activados , entonces comparamos.
+                
+                if (m_AlignX && m_AlignY) {
+                    
+                    // Nuestro eje de alineamiento está definido por hacia que lado se comenzó a desplazar con mayor diferencia.
+                    
+                    m_AlignX = (Desplazo_X > Desplazo_Y);
+                    m_AlignY = !m_AlignX;
+                    
+                }
+                
+                ImVec2 alignOffset = io.MousePos - m_StartAlign;
+                
+                // Si está presionando shift mientras desplaza entonces lo alineamos sobre un eje ya sea X o Y de acuerdo al que tenga mayor desplazamiento.
+                
+                dragOffset.x = dragOffset.x + alignOffset.x * (m_AlignX ? 1.0f : 0.0f);
+                dragOffset.y = dragOffset.y + alignOffset.y * (m_AlignY ? 1.0f : 0.0f);
+                
+            }
+               
+        }
+        
         auto alignedOffset  = Editor->AlignPointToGrid(draggedOrigin + dragOffset + alignPivot) - draggedOrigin - alignPivot;
-
+        
         if (!ImGui::GetIO().KeyAlt)
             dragOffset = alignedOffset;
         
@@ -4134,6 +4231,7 @@ ed::CreateItemAction::CreateItemAction(EditorContext* editor):
 
 ed::EditorAction::AcceptResult ed::CreateItemAction::Accept(const Control& control)
 {
+    
     IM_ASSERT(!m_IsActive);
 
     if (m_IsActive)
@@ -4158,15 +4256,79 @@ ed::EditorAction::AcceptResult ed::CreateItemAction::Accept(const Control& contr
     return EditorAction::True;
 }
 
+float Distancia (ImVec2 Posicion_A , ImVec2 Posicion_B) {
+    
+    // Distancias entre los puntos.
+    
+    float Distancia_X = (Posicion_B.x - Posicion_A.x);
+    float Distancia_Y = (Posicion_B.y - Posicion_A.y);
+    
+    // Distancia entre los dos puntos.
+    
+    return ImSqrt ((Distancia_X * Distancia_X) + (Distancia_Y * Distancia_Y));
+    
+}
+
+ed::Pin * ed::CreateItemAction::FindPin () {
+    
+    // Obtenemos la posición del Mouse.
+    
+    auto Posicion = ImGui::GetMousePos ();
+    
+    // Calculamos un recuadro alrededor de la pos del cursor de 30 de ancho/alto para validar si hay pines cercanos.
+    
+    ImRect Alrededores (Posicion - ImVec2 (15.0f , 15.0f),
+            Posicion + ImVec2 (15.0f , 15.0f)
+            );
+    
+    // Lista de pines cercanos.
+    
+    ed::vector <ed::Pin *> Pines;
+    
+    // Buscamos en la lista de pones.
+    
+    Editor->FindPinsInRect (Alrededores , Pines);
+    
+    // Si encontró algunos entonces los validaremos.
+    
+    for (auto Pin : Pines) {
+        
+        // Calculamos distancia.
+        
+        const ImRect & Recuadro = Pin->m_Bounds;
+        const ImVec2 & UL = Recuadro.Min;
+        const ImVec2 & BR = Recuadro.Max;
+        
+        // Distancia del punto origen al punto destino.
+        
+        ImVec2 Pin_Posicion = (Pin->m_Kind == ed::PinKind::Input) ?
+            ImVec2 (UL.x , UL.y + Recuadro.GetHeight () * 0.5f) :
+            ImVec2 (BR.x , BR.y - Recuadro.GetHeight () * 0.5f);
+        
+        // Si la distancia está valida en el recuadro definido entonces pasamos el pin como candidato.
+        
+        if (Distancia (Posicion , Pin_Posicion) < 21.21f) {
+            
+            return Pin;
+            
+        } 
+    
+    }
+    
+    return nullptr;
+    
+}
+
 bool ed::CreateItemAction::Process(const Control& control)
 {
     IM_ASSERT(m_IsActive);
 
     if (!m_IsActive)
         return false;
-
+    
     if (m_DraggedPin && control.ActivePin == m_DraggedPin && (m_CurrentStage == Possible))
     {
+        
         const auto draggingFromSource = (m_DraggedPin->m_Kind == PinKind::Output);
 
         ed::Pin cursorPin(Editor, 0, draggingFromSource ? PinKind::Input : PinKind::Output);
@@ -4188,10 +4350,32 @@ bool ed::CreateItemAction::Process(const Control& control)
             if (m_UserAction == UserAccept)
                 freePin = control.HotPin;
         }
-        else if (control.BackgroundHot)
-            DropNode();
-        else
+        else if (control.BackgroundHot) {
+            
+            ed::Pin * Searched = FindPin ();
+            
+            if (Searched) {
+                
+                DropPin(Searched);
+
+                if (m_UserAction == UserAccept) {
+                    freePin = Searched;
+                }
+                
+            }
+            else {
+                
+                DropNode();
+                
+            }
+            
+        }
+        else  {
+            
             DropNothing();
+            
+        }
+            
 
         auto drawList = ImGui::GetWindowDrawList();
         drawList->ChannelsSetCurrent(c_LinkChannel_NewLink);
@@ -4265,6 +4449,7 @@ void ed::CreateItemAction::SetStyle(ImU32 color, float thickness)
 
 bool ed::CreateItemAction::Begin()
 {
+    
     IM_ASSERT(false == m_InActive);
 
     m_InActive        = true;
@@ -4283,6 +4468,7 @@ bool ed::CreateItemAction::Begin()
 
 void ed::CreateItemAction::End()
 {
+    
     IM_ASSERT(m_InActive);
 
     if (m_IsInGlobalSpace)
@@ -4302,6 +4488,7 @@ void ed::CreateItemAction::End()
 
 void ed::CreateItemAction::DragStart(Pin* startPin)
 {
+    
     IM_ASSERT(!m_InActive);
 
     m_NextStage = Possible;
@@ -4311,6 +4498,7 @@ void ed::CreateItemAction::DragStart(Pin* startPin)
 
 void ed::CreateItemAction::DragEnd()
 {
+    
     IM_ASSERT(!m_InActive);
 
     if (m_CurrentStage == Possible && m_UserAction == UserAccept)
@@ -4352,6 +4540,7 @@ void ed::CreateItemAction::DropNothing()
 
 ed::CreateItemAction::Result ed::CreateItemAction::RejectItem()
 {
+    
     IM_ASSERT(m_InActive);
 
     if (!m_InActive || m_CurrentStage == None || m_ItemType == NoItem)
@@ -4385,6 +4574,7 @@ ed::CreateItemAction::Result ed::CreateItemAction::AcceptItem()
 
 ed::CreateItemAction::Result ed::CreateItemAction::QueryLink(PinId* startId, PinId* endId)
 {
+    
     IM_ASSERT(m_InActive);
 
     if (!m_InActive || m_CurrentStage == None || m_ItemType != Link)
@@ -4412,6 +4602,7 @@ ed::CreateItemAction::Result ed::CreateItemAction::QueryLink(PinId* startId, Pin
 
 ed::CreateItemAction::Result ed::CreateItemAction::QueryNode(PinId* pinId)
 {
+    
     IM_ASSERT(m_InActive);
 
     if (!m_InActive || m_CurrentStage == None || m_ItemType != Node)
